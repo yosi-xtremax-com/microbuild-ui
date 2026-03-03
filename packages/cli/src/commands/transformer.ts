@@ -374,6 +374,8 @@ const RELATIVE_IMPORT_MAPPINGS: Record<string, string> = {
   // file/File.tsx imports from ../upload → ./upload
   // files/Files.tsx imports from ../upload → ./upload
   // list-o2m imports from ../upload → ./upload
+  // list-m2m/ListM2M.tsx imports from ../list-m2a/render-template → ./list-m2a/render-template
+  '../list-m2a/render-template': './list-m2a/render-template',
 };
 
 /**
@@ -453,11 +455,21 @@ export function transformRelativeImports(
   }
   
   // Transform sibling component imports (../component-name → ./component-name)
-  // This handles cases like: import { Upload } from '../upload' → import { Upload } from './upload'
-  const siblingImportPattern = /from\s+['"](\.\.\/([a-z][-a-z0-9]*)(?:\/[A-Z][a-zA-Z]*)?)['"]/g;
-  result = result.replace(siblingImportPattern, (_match, _fullPath, componentFolder) => {
+  // This handles cases like:
+  //   import { Upload } from '../Upload' → import { Upload } from './upload'
+  //   import { renderTemplate } from '../list-m2a/render-template' → import { renderTemplate } from './list-m2a/render-template'
+  const siblingImportPattern = /from\s+['"](\.\.\/([a-z][-a-z0-9]*)(?:\/([-a-zA-Z0-9]+))?)['"]/g;
+  result = result.replace(siblingImportPattern, (_match, _fullPath, componentFolder, subFile) => {
     // Convert to kebab-case and use relative import
     const kebabName = toKebabCase(componentFolder);
+    if (subFile) {
+      // PascalCase subfile = component entry point → flatten (e.g., ../Upload/Upload → ./upload)
+      if (/^[A-Z]/.test(subFile)) {
+        return `from './${kebabName}'`;
+      }
+      // kebab-case subfile = internal module → preserve path (e.g., ../list-m2a/render-template → ./list-m2a/render-template)
+      return `from './${kebabName}/${toKebabCase(subFile)}'`;
+    }
     return `from './${kebabName}'`;
   });
 

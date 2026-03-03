@@ -1188,7 +1188,8 @@
       ],
       "registryDependencies": [
         "collection-form",
-        "collection-list"
+        "collection-list",
+        "list-m2a"
       ],
       "interface": {
         "id": "list-m2m",

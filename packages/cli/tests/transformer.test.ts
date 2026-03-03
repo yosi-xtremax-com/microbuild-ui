@@ -221,6 +221,18 @@ describe("transformRelativeImports", () => {
     );
     expect(result).toContain("from './upload'");
   });
+
+  test("transforms cross-component imports with kebab-case subpaths", () => {
+    const input = `import { renderTemplate } from "../list-m2a/render-template";`;
+    const result = transformRelativeImports(
+      input,
+      "ui-interfaces/src/list-m2m/ListM2M.tsx",
+      "components/ui/list-m2m.tsx",
+      "@/components/ui",
+    );
+    expect(result).toContain("./list-m2a/render-template");
+    expect(result).not.toContain("../list-m2a/render-template");
+  });
 });
 
 describe("hasBuildpadImports", () => {
