@@ -282,10 +282,14 @@ async function copyComponent(
   
   // Check if already installed
   if (config.installedComponents.includes(component.name) && !overwrite && !dryRun) {
-    // In non-interactive/batch mode (--all, bootstrap), silently skip already-installed components
-    if (installing.has('__nonInteractive__')) {
+    // In non-interactive/batch mode (--all, bootstrap), or when installing as a
+    // transitive dependency of another component, silently skip already-installed components.
+    // installing.size > 0 means we're in a recursive call from a parent copyComponent.
+    if (installing.has('__nonInteractive__') || installing.size > 0) {
       return true;
     }
+    // Stop the spinner so the interactive prompt is visible to the user
+    spinner.stop();
     const { shouldOverwrite } = await prompts({
       type: 'confirm',
       name: 'shouldOverwrite',
@@ -297,6 +301,8 @@ async function copyComponent(
       spinner.info(`Skipped ${component.title}`);
       return false;
     }
+    // Restart the spinner for the rest of the operation
+    spinner.start(`Adding ${component.title}...`);
   }
 
   // Mark as being installed to prevent circular deps

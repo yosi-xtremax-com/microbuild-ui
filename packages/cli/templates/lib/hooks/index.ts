@@ -5,6 +5,35 @@
  * This file is copied to your project and can be customized.
  */
 
+// Authentication & Authorization hooks (DaaS-compatible)
+export {
+  useAuth,
+  type AuthUser,
+  type AuthState,
+  type AuthMethods,
+  type UseAuthOptions,
+  type UseAuthReturn,
+} from './useAuth';
+export {
+  usePermissions,
+  type PermissionAction,
+  type PermissionDetails,
+  type CollectionPermissions,
+  type UserPermissions,
+  type PermissionsState,
+  type PermissionsMethods,
+  type UsePermissionsOptions,
+  type UsePermissionsReturn,
+} from './usePermissions';
+export {
+  useDaaSContext,
+  useIsDirectDaaSMode,
+  DaaSProvider,
+  type DaaSConfig,
+  type DaaSContextValue,
+  type DaaSProviderProps,
+} from './useDaaSContext';
+
 // Relation hooks
 export { useRelationM2M, type M2MRelationInfo } from './useRelationM2M';
 export { useRelationM2MItems, type M2MItem, type M2MQueryParams } from './useRelationM2MItems';
@@ -15,8 +44,28 @@ export {
   useRelationM2AItems, 
   type M2ARelationInfo, 
   type M2AItem, 
-  type M2AQueryParams
+  type M2AQueryParams,
+  type ChangesItem,
 } from './useRelationM2A';
+export {
+  useRelationPermissionsM2A,
+  type RelationPermissionsM2A,
+  type PerCollectionPermission,
+} from './useRelationPermissionsM2A';
+export {
+  useRelationMultipleM2M,
+  type M2MDisplayItem,
+  type M2MChangesItem,
+  type M2MMultipleQueryParams,
+} from './useRelationMultipleM2M';
+export {
+  useRelationPermissionsM2M,
+  type RelationPermissionsM2M,
+} from './useRelationPermissionsM2M';
+export {
+  useRelationPermissionsM2O,
+  type RelationPermissionsM2O,
+} from './useRelationPermissionsM2O';
 
 // File hooks
 export { 
@@ -81,6 +130,22 @@ export {
   type UseWorkflowVersioningProps,
   type UseWorkflowVersioningReturn
 } from './useWorkflowVersioning';
+
+// Field metadata hook
+export {
+  useFieldMetadata,
+  type FieldMetadataEntry,
+  type UseFieldMetadataOptions,
+  type UseFieldMetadataReturn,
+} from './useFieldMetadata';
+
+// Collection navigation hooks
+export {
+  useCollections,
+  type CollectionTreeNode,
+  type UseCollectionsOptions,
+  type UseCollectionsReturn
+} from './useCollections';
 
 // API helpers
 export { api, daasAPI, createDaaSAPI, type DaaSAPIConfig, type QueryParams } from './api';
