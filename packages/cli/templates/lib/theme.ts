@@ -132,7 +132,6 @@ export const theme = createTheme({
           borderRadius: "var(--mantine-radius-xs)",
           fontWeight: "400",
           fontSize: "var(--mantine-font-size-md)",
-          padding: "0.5rem 1rem",
           transition:
             "color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out"
         }
@@ -144,7 +143,6 @@ export const theme = createTheme({
           borderRadius: "var(--mantine-radius-xs)",
           borderColor: "var(--mantine-color-gray-4)",
           fontSize: "var(--mantine-font-size-md)",
-          padding: "0.5rem 1rem",
           transition: "border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out"
         }
       }
@@ -154,7 +152,6 @@ export const theme = createTheme({
         root: {
           borderRadius: "var(--mantine-radius-xs)",
           borderColor: "var(--mantine-color-gray-4)",
-          padding: "1.5rem"
         }
       }
     },
