@@ -10,6 +10,12 @@ export { apiRequest, type ApiRequestOptions } from "./api-request";
 export { CollectionsService, createCollectionsService } from "./collections";
 export { FieldsService, createFieldsService } from "./fields";
 export {
+  ItemsService,
+  createItemsService,
+  type ItemsQuery,
+  type ItemsResponse,
+} from "./items";
+export {
   PermissionsService,
   createPermissionsService,
   type CollectionAccess,

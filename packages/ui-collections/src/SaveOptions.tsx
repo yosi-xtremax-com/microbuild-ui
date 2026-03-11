@@ -90,7 +90,7 @@ export const SaveOptions: React.FC<SaveOptionsProps> = ({
       <Menu.Target>
         <ActionIcon
           variant="filled"
-          size="md"
+          size="input-sm"
           disabled={disabled}
           aria-label="More save options"
           style={{

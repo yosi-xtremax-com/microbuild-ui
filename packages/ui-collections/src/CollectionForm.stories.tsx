@@ -891,3 +891,149 @@ export const WithSaveOptions: Story = {
     showSaveOptions: true,
   },
 };
+
+// ============================================================================
+// Delete Story
+// ============================================================================
+
+/**
+ * Decorator that supports DELETE requests in addition to standard CRUD mocks.
+ */
+const withDeleteApi: Decorator = (Story) => {
+  const originalFetch = window.fetch;
+
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+
+    if (url.includes("/api/permissions/me")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            posts: {
+              read: { fields: ["*"] },
+              create: { fields: ["*"] },
+              update: { fields: ["*"] },
+              delete: { fields: ["*"] },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    if (url.includes("/api/fields/")) {
+      return new Response(JSON.stringify({ data: MOCK_FIELDS }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.match(/\/api\/items\/\w+\/\d+/) && init?.method === "DELETE") {
+      return new Response(JSON.stringify({}), {
+        status: 204,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (url.match(/\/api\/items\/\w+\/\d+/)) {
+      return new Response(JSON.stringify({ data: MOCK_ITEM }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (
+      url.includes("/api/items/") &&
+      init?.method &&
+      ["POST", "PATCH"].includes(init.method)
+    ) {
+      return new Response(JSON.stringify({ data: { id: 99 } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return originalFetch(input, init);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      window.fetch = originalFetch;
+    };
+  });
+
+  return <Story />;
+};
+
+/**
+ * Edit form with delete button and confirmation dialog.
+ * Demonstrates the full CRUD lifecycle: load → edit → save or delete.
+ */
+export const WithDelete: Story = {
+  decorators: [withDeleteApi],
+  render: () => {
+    const [lastAction, setLastAction] = useState<string>("");
+
+    return (
+      <Stack gap="md">
+        <Paper p="sm" withBorder>
+          <Text size="sm" c="dimmed">
+            Last action: <Code>{lastAction || "(none)"}</Code>
+          </Text>
+        </Paper>
+        <CollectionForm
+          collection="posts"
+          mode="edit"
+          id="1"
+          showSaveOptions
+          showDelete
+          onSuccess={(data) =>
+            setLastAction(`onSuccess(${JSON.stringify(data)})`)
+          }
+          onDelete={() => setLastAction("onDelete() — item deleted")}
+          onCancel={() => setLastAction("onCancel()")}
+        />
+      </Stack>
+    );
+  },
+};
+
+/**
+ * Full CRUD form: create mode with callbacks for all actions.
+ */
+export const FullCrud: Story = {
+  decorators: [withDeleteApi],
+  render: () => {
+    const [log, setLog] = useState<string[]>([]);
+    const addLog = (msg: string) =>
+      setLog((prev) => [...prev, `${new Date().toLocaleTimeString()} — ${msg}`]);
+
+    return (
+      <Stack gap="md">
+        <Paper p="sm" withBorder mah={150} style={{ overflow: "auto" }}>
+          <Text size="sm" fw={600} mb="xs">Event Log</Text>
+          {log.length === 0 ? (
+            <Text size="xs" c="dimmed">No events yet</Text>
+          ) : (
+            log.map((entry, i) => (
+              <Text key={i} size="xs" c="dimmed">{entry}</Text>
+            ))
+          )}
+        </Paper>
+        <CollectionForm
+          collection="posts"
+          mode="create"
+          showSaveOptions
+          onSuccess={(data) => addLog(`Created: ${JSON.stringify(data)}`)}
+          onCancel={() => addLog("Cancelled")}
+          onNavigateToCreate={() => addLog("Navigate → new create form")}
+        />
+      </Stack>
+    );
+  },
+};

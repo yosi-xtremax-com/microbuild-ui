@@ -25,6 +25,7 @@ import {
   Collapse,
   Group,
   Menu,
+  Modal,
   Pagination,
   Select,
   Stack,
@@ -34,6 +35,7 @@ import {
 } from "@mantine/core";
 import {
   FieldsService,
+  ItemsService,
   PermissionsService,
   apiRequest,
 } from "@buildpad/services";
@@ -132,6 +134,12 @@ export interface CollectionListProps {
   onItemClick?: (item: AnyItem) => void;
   /** Callback when "Create" button is clicked */
   onCreate?: () => void;
+  /** Callback when "Edit" (row click or edit action) is triggered */
+  onEdit?: (item: AnyItem) => void;
+  /** Enable built-in delete functionality with confirmation */
+  enableDelete?: boolean;
+  /** Callback after successful delete (receives deleted IDs) */
+  onDeleteSuccess?: (ids: (string | number)[]) => void;
   /** Callback when visible fields change */
   onFieldsChange?: (fields: string[]) => void;
   /** Callback when sort changes */
@@ -184,6 +192,9 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   unarchiveValue = "draft",
   onItemClick,
   onCreate,
+  onEdit,
+  enableDelete = false,
+  onDeleteSuccess,
   onFieldsChange,
   onSortChange: onSortChangeProp,
   onFilterChange,
@@ -213,6 +224,11 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   // ----- Filter panel state -----
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [internalFilter, setInternalFilter] = useState<Record<string, unknown> | null>(null);
+
+  // ----- Delete state -----
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<(string | number)[]>([]);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // ----- Header state (for resize/reorder persistence) -----
   const [headerOverrides, setHeaderOverrides] = useState<
@@ -836,6 +852,45 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   }, [onFilterChange]);
 
   // =========================================================================
+  // Delete handlers
+  // =========================================================================
+  const handleDeleteRequest = useCallback(
+    (ids: (string | number)[]) => {
+      if (ids.length === 0) return;
+      setDeletingIds(ids);
+      setDeleteConfirmOpen(true);
+    },
+    [],
+  );
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (deletingIds.length === 0) return;
+
+    setDeleteLoading(true);
+    try {
+      const itemsService = new ItemsService(collection);
+      await itemsService.deleteMany(deletingIds, primaryKeyField);
+      setDeleteConfirmOpen(false);
+      setDeletingIds([]);
+      setSelectedItems([]);
+      onDeleteSuccess?.(deletingIds);
+      // Refresh list
+      loadItems();
+    } catch (err) {
+      console.error("Error deleting items:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete items");
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [deletingIds, collection, primaryKeyField, loadItems, onDeleteSuccess]);
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteConfirmOpen(false);
+    setDeletingIds([]);
+  }, []);
+
+  // =========================================================================
   // Item count display (mirrors Directus "X-Y of Z items (N filtered)")
   // =========================================================================
   const itemCountDisplay = useMemo(() => {
@@ -948,6 +1003,19 @@ export const CollectionList: React.FC<CollectionListProps> = ({
               <Badge variant="light" size="lg">
                 {selectedIds.length} selected
               </Badge>
+              {/* Built-in delete action */}
+              {enableDelete && deleteAllowed && (
+                <Tooltip label="Delete selected">
+                  <ActionIcon
+                    variant="light"
+                    color="red"
+                    onClick={() => handleDeleteRequest(selectedIds)}
+                    data-testid="bulk-action-delete"
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
               {bulkActions.map((action, index) => {
                 const permKey = action.requiredPermission;
                 const permAllowed =
@@ -1120,6 +1188,41 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         }
         data-testid="collection-list-table"
       />
+
+      {/* Delete confirmation modal */}
+      <Modal
+        opened={deleteConfirmOpen}
+        onClose={handleDeleteCancel}
+        title="Confirm Delete"
+        centered
+        size="sm"
+        data-testid="delete-confirm-modal"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure you want to delete {deletingIds.length}{" "}
+            {deletingIds.length === 1 ? "item" : "items"}? This action cannot be
+            undone.
+          </Text>
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              onClick={handleDeleteCancel}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDeleteConfirm}
+              loading={deleteLoading}
+              data-testid="delete-confirm-btn"
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 };
