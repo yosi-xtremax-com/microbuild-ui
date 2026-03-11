@@ -145,7 +145,7 @@
     },
     "services": {
       "name": "services",
-      "description": "Service classes for fields, collections, permissions, and DaaS API config",
+      "description": "Service classes for fields, collections, items, permissions, and DaaS API config",
       "files": [
         {
           "source": "services/src/api-request.ts",
@@ -158,6 +158,10 @@
         {
           "source": "services/src/collections.ts",
           "target": "lib/buildpad/services/collections.ts"
+        },
+        {
+          "source": "services/src/items.ts",
+          "target": "lib/buildpad/services/items.ts"
         },
         {
           "source": "services/src/permissions.ts",
@@ -1793,7 +1797,8 @@
         "services"
       ],
       "registryDependencies": [
-        "vform"
+        "vform",
+        "save-options"
       ]
     },
     {
@@ -1844,7 +1849,7 @@
     {
       "name": "collection-list",
       "title": "CollectionList",
-      "description": "Data-connected collection table composing VTable with pagination, search, sorting, column resize/reorder, header context menus, field add/remove, and bulk actions",
+      "description": "Data-connected collection table with pagination, search, sorting, column resize/reorder, header context menus, field add/remove, filtering, and bulk delete",
       "category": "collection",
       "files": [
         {
@@ -1861,7 +1866,8 @@
         "services"
       ],
       "registryDependencies": [
-        "vtable"
+        "vtable",
+        "filter-panel"
       ]
     },
     {
