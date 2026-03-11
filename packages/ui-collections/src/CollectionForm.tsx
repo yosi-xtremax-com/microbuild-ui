@@ -26,15 +26,16 @@ import {
   Button,
   Group,
   LoadingOverlay,
+  Modal,
   Paper,
   Stack,
   Text,
 } from "@mantine/core";
-import { FieldsService, PermissionsService, apiRequest } from "@buildpad/services";
+import { FieldsService, ItemsService, PermissionsService, apiRequest } from "@buildpad/services";
 import type { CollectionActionAccess } from "@buildpad/services";
 import type { Field } from "@buildpad/types";
 import { VForm } from "@buildpad/ui-form";
-import { IconAlertCircle, IconCheck, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconCheck, IconTrash, IconX } from "@tabler/icons-react";
 import React, {
   useCallback,
   useEffect,
@@ -59,12 +60,16 @@ export interface CollectionFormProps {
   onCancel?: () => void;
   /** Callback to navigate to a new create form (for save-and-add-new) */
   onNavigateToCreate?: () => void;
+  /** Callback when item is deleted successfully */
+  onDelete?: () => void;
   /** Fields to exclude from form */
   excludeFields?: string[];
   /** Fields to show (if set, only these fields are shown) */
   includeFields?: string[];
   /** Whether to show the SaveOptions dropdown alongside the save button */
   showSaveOptions?: boolean;
+  /** Whether to show the delete button in edit mode (default: true when id is set) */
+  showDelete?: boolean;
 }
 
 /** Permission state exposed to parent components */
@@ -111,9 +116,11 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
   onSuccess,
   onCancel,
   onNavigateToCreate,
+  onDelete,
   excludeFields,
   includeFields,
   showSaveOptions = false,
+  showDelete,
 }) => {
   // Use stable references for optional props
   const stableDefaultValues = useMemo(
@@ -143,6 +150,10 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
   const [deleteAllowed, setDeleteAllowed] = useState(false);
   const [readableFieldNames, setReadableFieldNames] = useState<string[] | null>(null);
   const [writableFieldNames, setWritableFieldNames] = useState<string[] | null>(null);
+
+  // ----- Delete state -----
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // Track if data has been loaded to prevent re-fetching
   const dataLoadedRef = useRef(false);
@@ -268,10 +279,9 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
 
         // If editing, load the existing item
         if (mode === "edit" && id) {
-          const response = await apiRequest<{ data: Record<string, unknown> }>(
-            `/api/items/${collection}/${id}`,
-          );
-          initialData = { ...initialData, ...response.data };
+          const itemsService = new ItemsService(collection);
+          const item = await itemsService.readOne(id);
+          initialData = { ...initialData, ...item };
         }
 
         setFormData(initialData);
@@ -396,6 +406,8 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
       });
 
       // Only send changed fields in edit mode (PATCH semantics)
+      const itemsService = new ItemsService(collection);
+
       if (mode === "edit" && id) {
         const changedData: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(dataToSave)) {
@@ -404,10 +416,7 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
           }
         }
 
-        await apiRequest(`/api/items/${collection}/${id}`, {
-          method: "PATCH",
-          body: JSON.stringify(changedData),
-        });
+        await itemsService.updateOne(id, changedData);
 
         setSuccess(true);
         setInitialFormData({ ...formData }); // Reset "hasEdits" baseline
@@ -416,11 +425,8 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
           // Save as copy: create a new item with current data (without id)
           const copyData = { ...dataToSave };
           delete copyData.id;
-          const copyResponse = await apiRequest<{ data: Record<string, unknown> }>(
-            `/api/items/${collection}`,
-            { method: "POST", body: JSON.stringify(copyData) },
-          );
-          onSuccess?.({ ...copyData, id: copyResponse.data?.id });
+          const copyResult = await itemsService.createOne(copyData);
+          onSuccess?.({ ...copyData, id: copyResult?.id });
           return;
         }
 
@@ -432,11 +438,8 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
         onSuccess?.({ ...dataToSave, id });
       } else {
         // Create mode
-        const response = await apiRequest<{ data: Record<string, unknown> }>(
-          `/api/items/${collection}`,
-          { method: "POST", body: JSON.stringify(dataToSave) },
-        );
-        const newId = response.data?.id;
+        const result = await itemsService.createOne(dataToSave);
+        const newId = result?.id;
         setSuccess(true);
 
         if (afterSave === "add-new") {
@@ -475,6 +478,33 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
     setSuccess(false);
     setError(null);
   }, [initialFormData]);
+
+  // =========================================================================
+  // Delete handler
+  // =========================================================================
+  const handleDelete = async () => {
+    if (!id || mode !== "edit") return;
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      const itemsService = new ItemsService(collection);
+      await itemsService.deleteOne(id);
+      setDeleteConfirmOpen(false);
+      onDelete?.();
+    } catch (err) {
+      console.error("Error deleting item:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete item");
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Whether to show the delete button
+  const canShowDelete =
+    (showDelete ?? (mode === "edit" && !!id)) && deleteAllowed;
 
   if (loading) {
     return (
@@ -553,6 +583,19 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
           )}
 
           <Group justify="flex-end" mt="md">
+            {canShowDelete && (
+              <Button
+                variant="subtle"
+                color="red"
+                onClick={() => setDeleteConfirmOpen(true)}
+                leftSection={<IconTrash size={16} />}
+                disabled={saving || deleting}
+                data-testid="form-delete-btn"
+                style={{ marginRight: "auto" }}
+              >
+                Delete
+              </Button>
+            )}
             {onCancel && (
               <Button
                 variant="subtle"
@@ -589,6 +632,40 @@ export const CollectionForm: React.FC<CollectionFormProps> = ({
           </Group>
         </Stack>
       </form>
+
+      {/* Delete confirmation modal */}
+      <Modal
+        opened={deleteConfirmOpen}
+        onClose={() => setDeleteConfirmOpen(false)}
+        title="Confirm Delete"
+        centered
+        size="sm"
+        data-testid="delete-confirm-modal"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure you want to delete this item? This action cannot be
+            undone.
+          </Text>
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              onClick={() => setDeleteConfirmOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDelete}
+              loading={deleting}
+              data-testid="delete-confirm-btn"
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Paper>
   );
 };

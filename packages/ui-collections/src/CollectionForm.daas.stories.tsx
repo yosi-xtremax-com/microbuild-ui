@@ -12,6 +12,7 @@ import {
   Divider,
   Select,
   Switch,
+  ScrollArea,
 } from '@mantine/core';
 import {
   IconPlugConnected,
@@ -194,6 +195,11 @@ const DaaSFormPlayground: React.FC = () => {
   const [selectedItemId, setSelectedItemId] = useState<string>('');
   const [formKey, setFormKey] = useState(0);
   const [showForm, setShowForm] = useState(false);
+  const [showDelete, setShowDelete] = useState(true);
+  const [showSaveOptions, setShowSaveOptions] = useState(true);
+  const [eventLog, setEventLog] = useState<string[]>([]);
+  const addLog = (msg: string) =>
+    setEventLog((prev) => [`${new Date().toLocaleTimeString()} — ${msg}`, ...prev].slice(0, 50));
 
   // Check connection and load collections on mount
   useEffect(() => {
@@ -410,6 +416,24 @@ pnpm dev:host
                       setFormKey((k) => k + 1);
                     }}
                   />
+                  <Switch
+                    label="Show Delete"
+                    description="Show the delete button (edit mode)"
+                    checked={showDelete}
+                    onChange={(e) => {
+                      setShowDelete(e.currentTarget.checked);
+                      setFormKey((k) => k + 1);
+                    }}
+                  />
+                  <Switch
+                    label="Save Options"
+                    description="Show save dropdown menu"
+                    checked={showSaveOptions}
+                    onChange={(e) => {
+                      setShowSaveOptions(e.currentTarget.checked);
+                      setFormKey((k) => k + 1);
+                    }}
+                  />
 
                   {formMode === 'edit' && itemIds.length > 0 && (
                     <Select
@@ -438,10 +462,32 @@ pnpm dev:host
                 collection={collection}
                 mode={formMode}
                 id={formMode === 'edit' ? selectedItemId : undefined}
-                onSuccess={(data) => {
-                  console.log('[CollectionForm] Success:', data);
-                }}
+                showDelete={showDelete}
+                showSaveOptions={showSaveOptions}
+                onSuccess={(data) => addLog(`Saved: ${JSON.stringify(data)?.slice(0, 100)}`)}
+                onCancel={() => addLog('Cancelled')}
+                onDelete={() => addLog('Deleted item')}
+                onNavigateToCreate={() => addLog('Navigate → new create form')}
               />
+            </Paper>
+
+            {/* Event Log */}
+            <Paper p="md" withBorder>
+              <Group justify="space-between" mb="xs">
+                <Text size="sm" fw={600}>Event Log</Text>
+                <Button variant="subtle" size="compact-xs" onClick={() => setEventLog([])}>
+                  Clear
+                </Button>
+              </Group>
+              <ScrollArea h={120}>
+                {eventLog.length === 0 ? (
+                  <Text size="xs" c="dimmed">No events yet — save, cancel, or delete to see callbacks</Text>
+                ) : (
+                  eventLog.map((entry, i) => (
+                    <Text key={i} size="xs" c="dimmed">{entry}</Text>
+                  ))
+                )}
+              </ScrollArea>
             </Paper>
           </>
         ) : (

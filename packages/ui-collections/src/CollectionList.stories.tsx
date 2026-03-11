@@ -853,3 +853,191 @@ export const RestrictedFields: Story = {
     limit: 25,
   },
 };
+
+// ============================================================================
+// CRUD Stories
+// ============================================================================
+
+/**
+ * Decorator that supports DELETE requests for CRUD stories.
+ */
+const createCrudApiDecorator = (): Decorator => {
+  const decorator: Decorator = (Story) => {
+    const originalFetch = window.fetch;
+    let mockItems = [...MOCK_ITEMS];
+
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+          ? input.href
+          : input.url;
+
+      // Mock permissions — full CRUD access
+      if (url.includes("/api/permissions/me")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              posts: {
+                read: { fields: ["*"] },
+                create: { fields: ["*"] },
+                update: { fields: ["*"] },
+                delete: { fields: ["*"] },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      if (url.includes("/api/fields/")) {
+        return new Response(JSON.stringify({ data: MOCK_FIELDS }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // DELETE single or bulk
+      if (url.includes("/api/items/") && init?.method === "DELETE") {
+        const idMatch = url.match(/\/api\/items\/\w+\/(\d+)/);
+        if (idMatch) {
+          mockItems = mockItems.filter((item) => item.id !== Number(idMatch[1]));
+        } else if (init.body) {
+          const ids = JSON.parse(init.body as string) as number[];
+          mockItems = mockItems.filter((item) => !ids.includes(item.id));
+        }
+        return new Response(JSON.stringify({}), {
+          status: 204,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // LIST items
+      if (url.includes("/api/items/")) {
+        const urlObj = new URL(url, window.location.origin);
+        const params = urlObj.searchParams;
+        let items = [...mockItems];
+
+        // Search
+        const searchTerm = params.get("search");
+        if (searchTerm) {
+          const lower = searchTerm.toLowerCase();
+          items = items.filter((item) =>
+            Object.values(item).some(
+              (v) => v !== null && String(v).toLowerCase().includes(lower),
+            ),
+          );
+        }
+
+        // Sort
+        const sortParam = params.get("sort");
+        if (sortParam) {
+          const desc = sortParam.startsWith("-");
+          const field = desc ? sortParam.slice(1) : sortParam;
+          items.sort((a, b) => {
+            const va = (a as Record<string, unknown>)[field];
+            const vb = (b as Record<string, unknown>)[field];
+            if (va == null && vb == null) return 0;
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            const cmp = String(va).localeCompare(String(vb), undefined, { numeric: true });
+            return desc ? -cmp : cmp;
+          });
+        }
+
+        const totalCount = mockItems.length;
+        const filterCount = items.length;
+        const limitVal = Number(params.get("limit")) || 25;
+        const pageVal = Number(params.get("page")) || 1;
+        const start = (pageVal - 1) * limitVal;
+        const paged = items.slice(start, start + limitVal);
+
+        return new Response(
+          JSON.stringify({
+            data: paged,
+            meta: { total_count: totalCount, filter_count: filterCount },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      return originalFetch(input, init);
+    };
+
+    React.useEffect(() => {
+      return () => {
+        window.fetch = originalFetch;
+      };
+    });
+
+    return <Story />;
+  };
+  return decorator;
+};
+
+/**
+ * Full CRUD list — select items and delete them with a confirmation dialog.
+ * Uses built-in delete functionality with `enableDelete`.
+ */
+export const WithBuiltInDelete: Story = {
+  decorators: [createCrudApiDecorator()],
+  render: () => {
+    const [log, setLog] = useState<string[]>([]);
+    const addLog = (msg: string) =>
+      setLog((prev) => [...prev, `${new Date().toLocaleTimeString()} — ${msg}`]);
+
+    return (
+      <Stack gap="md">
+        <CollectionList
+          collection="posts"
+          enableSelection
+          enableDelete
+          enableCreate
+          enableSearch
+          enableFilter
+          limit={25}
+          onCreate={() => addLog("Create button clicked")}
+          onEdit={(item) => addLog(`Edit: ${(item as Record<string, unknown>).title}`)}
+          onDeleteSuccess={(ids) => addLog(`Deleted items: ${ids.join(", ")}`)}
+          onItemClick={(item) => addLog(`Clicked: ${(item as Record<string, unknown>).title}`)}
+        />
+        <Paper p="sm" withBorder mah={150} style={{ overflow: "auto" }}>
+          <Text size="sm" fw={600} mb="xs">Event Log</Text>
+          {log.length === 0 ? (
+            <Text size="xs" c="dimmed">No events yet — try selecting items and deleting them</Text>
+          ) : (
+            log.map((entry, i) => (
+              <Text key={i} size="xs" c="dimmed">{entry}</Text>
+            ))
+          )}
+        </Paper>
+      </Stack>
+    );
+  },
+};
+
+/**
+ * Full CRUD demo — matches a complete content management interface.
+ * Search, filter, select, delete, create, and column management.
+ */
+export const FullCrud: Story = {
+  decorators: [createCrudApiDecorator()],
+  args: {
+    collection: "posts",
+    enableSearch: true,
+    enableFilter: true,
+    enableSelection: true,
+    enableCreate: true,
+    enableDelete: true,
+    enableSort: true,
+    enableResize: true,
+    enableReorder: true,
+    enableHeaderMenu: true,
+    enableAddField: true,
+    limit: 25,
+    tableSpacing: "cozy",
+    onCreate: () => alert("Navigate to create form"),
+    onDeleteSuccess: (ids) => alert(`Deleted: ${ids.join(", ")}`),
+  },
+};
