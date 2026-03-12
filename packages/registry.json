@@ -105,6 +105,10 @@
           "target": "lib/buildpad/interface-registry.ts"
         },
         {
+          "source": "utils/src/is-new-item.ts",
+          "target": "lib/buildpad/is-new-item.ts"
+        },
+        {
           "source": "cli/templates/lib/utils-index.ts",
           "target": "lib/buildpad/utils/index.ts"
         },
