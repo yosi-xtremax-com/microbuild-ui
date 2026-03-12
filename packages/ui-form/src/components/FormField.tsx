@@ -12,7 +12,7 @@ import { IconAlertCircle } from '@tabler/icons-react';
 import type { FormField as TFormField, ValidationError } from '../types';
 import { FormFieldInterface } from './FormFieldInterface';
 import { FormFieldLabel } from './FormFieldLabel';
-import { isFieldReadOnly } from '@buildpad/utils';
+import { isFieldReadOnly, isNewItem } from '@buildpad/utils';
 
 export interface FormFieldProps {
   /** Field definition */
@@ -66,7 +66,7 @@ export const FormField: React.FC<FormFieldProps> = ({
 }) => {
   // Determine form context (create vs edit)
   const context = useMemo(() => {
-    return primaryKey === '+' || !primaryKey ? 'create' : 'edit';
+    return isNewItem(primaryKey) ? 'create' : 'edit';
   }, [primaryKey]);
 
   // Determine if field is disabled using @buildpad/utils isFieldReadOnly

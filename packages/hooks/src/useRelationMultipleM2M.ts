@@ -18,7 +18,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { apiRequest } from './utils';
+import { apiRequest, isNewItem } from './utils';
 import type { M2MRelationInfo } from './useRelationM2M';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ export function useRelationMultipleM2M(
     // ── Load items from server ──────────────────────────────────────
 
     const loadItems = useCallback(async (params: M2MMultipleQueryParams) => {
-        if (!relationInfo || !parentPrimaryKey || parentPrimaryKey === '+') {
+        if (!relationInfo || isNewItem(parentPrimaryKey)) {
             setFetchedItems([]);
             setExistingItemCount(0);
             return;

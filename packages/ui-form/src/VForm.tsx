@@ -18,6 +18,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import './VForm.css';
 import { Stack, Box, Alert, Text, Skeleton } from '@mantine/core';
+import { isNewItem } from '@buildpad/utils';
 import { IconInfoCircle, IconLock } from '@tabler/icons-react';
 import type { Field } from '@buildpad/types';
 import { FieldsService, useDaaSContext } from '@buildpad/services';
@@ -197,7 +198,7 @@ export const VForm: React.FC<VFormProps> = ({
   // Determine the action based on primaryKey if not explicitly provided
   const effectiveAction: FormAction = useMemo(() => {
     if (action) return action;
-    if (primaryKey === '+') return 'create';
+    if (isNewItem(primaryKey)) return 'create';
     if (primaryKey) return 'update';
     return 'read';
   }, [action, primaryKey]);

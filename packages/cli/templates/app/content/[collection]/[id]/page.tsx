@@ -12,6 +12,7 @@
 import React, { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { CollectionForm } from '@/components/ui/collection-form';
+import { isNewItem } from '@/lib/buildpad/utils';
 
 export default function ItemPage({
   params,
@@ -21,7 +22,7 @@ export default function ItemPage({
   const { collection, id } = use(params);
   const router = useRouter();
 
-  const isNew = id === '+' || id === 'new';
+  const isNew = isNewItem(id);
 
   return (
     <CollectionForm

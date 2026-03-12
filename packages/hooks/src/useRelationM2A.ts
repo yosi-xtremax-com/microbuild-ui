@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { notifications } from '@mantine/notifications';
 import { apiRequest } from '@buildpad/services';
+import { isNewItem } from '@buildpad/utils';
 
 interface CollectionMeta {
     display_template?: string;
@@ -563,7 +564,7 @@ export function useRelationM2AItems(
 
     // ── load fetched items from server ──────────────────────────────
     const loadItems = useCallback(async (params?: M2AQueryParams) => {
-        if (!relationInfo || !parentPrimaryKey || parentPrimaryKey === '+') {
+        if (!relationInfo || isNewItem(parentPrimaryKey)) {
             setFetchedItems([]);
             setExistingItemCount(0);
             return;
