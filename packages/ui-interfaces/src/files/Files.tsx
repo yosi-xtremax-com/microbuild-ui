@@ -4,6 +4,7 @@ import { IconTrash, IconDownload, IconExternalLink, IconFolder, IconDotsVertical
 import { type FileUpload } from '../upload';
 import { daasAPI, type DaaSFile } from '@buildpad/hooks';
 import { useFiles } from '@buildpad/hooks';
+import { isNewItem } from '@buildpad/utils';
 
 /**
  * Convert DaaSFile to FileUpload type (adds fallback for nullable fields)
@@ -119,7 +120,7 @@ export const Files: React.FC<FilesProps> = ({
   // Fetch files from junction table when we have a primaryKey and junction config
   useEffect(() => {
     // Only fetch if we have the necessary info and haven't loaded yet
-    if (!primaryKey || primaryKey === '+' || primaryKey === 'new' || junctionLoaded) {
+    if (isNewItem(primaryKey) || junctionLoaded) {
       return;
     }
 
@@ -200,7 +201,7 @@ export const Files: React.FC<FilesProps> = ({
       
       if (arr.length === 0) {
         // Don't clear files if we haven't loaded junction data yet
-        if (junctionLoaded || !primaryKey || primaryKey === '+' || primaryKey === 'new') {
+        if (junctionLoaded || isNewItem(primaryKey)) {
           setFiles([]);
           hydratedIdsRef.current.clear();
         }
@@ -336,7 +337,7 @@ export const Files: React.FC<FilesProps> = ({
   // Sync junction table with current files
   const syncJunctionTable = useCallback(async (newFiles: FileUpload[]) => {
     // Only sync if we have a primary key (existing record) and junction config
-    if (!primaryKey || primaryKey === '+' || primaryKey === 'new') {
+    if (isNewItem(primaryKey)) {
       return;
     }
 

@@ -42,15 +42,6 @@ const defaultApiClient = {
 };
 
 /**
- * Check if an item ID represents a new item (not yet saved)
- */
-function isNewItem(itemId?: string | number | null): boolean {
-  if (!itemId) return true;
-  if (itemId === '+' || itemId === 'new') return true;
-  return false;
-}
-
-/**
  * useWorkflow Hook
  *
  * A React hook for managing workflow state transitions.
