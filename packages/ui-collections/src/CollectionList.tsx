@@ -5,8 +5,12 @@
  * Composes VTable for presentation (sorting, resize, reorder, selection)
  * with data fetching from FieldsService/apiRequest.
  *
- * Used by ListO2M and ListM2M for selecting existing items,
- * and by content module pages for collection list views.
+ * Inspired by the DaaS content module's tabular layout:
+ * - Integrated FilterPanel with active filter count badge
+ * - Action toolbar: search, filter toggle, bulk actions, create button
+ * - Pagination with configurable page sizes (25, 50, 100, 250)
+ * - Permission-gated create/delete actions
+ * - Field-type-aware cell rendering (booleans, dates, numbers, etc.)
  *
  * @package @buildpad/ui-collections
  */
@@ -16,20 +20,26 @@
 import {
   ActionIcon,
   Alert,
+  Badge,
   Button,
+  Collapse,
   Group,
   Menu,
+  Modal,
   Pagination,
   Select,
   Stack,
   Text,
   TextInput,
+  Tooltip,
 } from "@mantine/core";
 import {
   FieldsService,
+  ItemsService,
   PermissionsService,
   apiRequest,
 } from "@buildpad/services";
+import type { CollectionActionAccess } from "@buildpad/services";
 import type { AnyItem, Field } from "@buildpad/types";
 import type { Alignment, Header, HeaderRaw, Sort } from "@buildpad/ui-table";
 import { VTable } from "@buildpad/ui-table";
@@ -38,22 +48,46 @@ import {
   IconAlignCenter,
   IconAlignLeft,
   IconAlignRight,
+  IconArchive,
+  IconCheck,
+  IconEdit,
   IconEyeOff,
+  IconFilter,
+  IconFilterOff,
   IconPlus,
   IconRefresh,
   IconSearch,
   IconSortAscending,
   IconSortDescending,
+  IconTrash,
+  IconX,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FilterPanel } from "./FilterPanel";
 import "./CollectionList.css";
 
 export interface BulkAction {
   label: string;
   icon?: React.ReactNode;
   color?: string;
+  /** Whether to show a confirmation dialog before executing */
+  confirm?: boolean;
+  /** Required permission action; bulk action is disabled when the user lacks this permission */
+  requiredPermission?: "create" | "update" | "delete";
   action: (selectedIds: (string | number)[]) => void | Promise<void>;
 }
+
+/** Permission state exposed to consumers via onPermissionsLoaded */
+export interface ListPermissionState {
+  createAllowed: boolean;
+  readAllowed: boolean;
+  updateAllowed: boolean;
+  deleteAllowed: boolean;
+  archiveAllowed: boolean;
+}
+
+/** Archive filter mode for collections with an archive field */
+export type ArchiveFilter = "all" | "archived" | "unarchived";
 
 export interface CollectionListProps {
   /** Collection name to display */
@@ -62,6 +96,8 @@ export interface CollectionListProps {
   enableSelection?: boolean;
   /** Filter to apply (DaaS-style filter object) */
   filter?: Record<string, unknown>;
+  /** Enable the integrated filter panel toggle */
+  enableFilter?: boolean;
   /** Bulk actions for selected items */
   bulkActions?: BulkAction[];
   /** Fields to display (defaults to first 5 visible fields) */
@@ -80,18 +116,38 @@ export interface CollectionListProps {
   enableHeaderMenu?: boolean;
   /** Enable inline "add field" button in header */
   enableAddField?: boolean;
+  /** Enable the create (+) action button */
+  enableCreate?: boolean;
   /** Primary key field name */
   primaryKeyField?: string;
   /** Row height in pixels */
   rowHeight?: number;
   /** Table spacing preset */
   tableSpacing?: "compact" | "cozy" | "comfortable";
+  /** Archive field name (e.g. "status" or "archived"). When set, archive filter UI is shown. */
+  archiveField?: string;
+  /** Value that indicates an item is archived (default: "archived") */
+  archiveValue?: string;
+  /** Value that indicates an item is not archived (default: "draft") */
+  unarchiveValue?: string;
   /** Callback when item row is clicked */
   onItemClick?: (item: AnyItem) => void;
+  /** Callback when "Create" button is clicked */
+  onCreate?: () => void;
+  /** Callback when "Edit" (row click or edit action) is triggered */
+  onEdit?: (item: AnyItem) => void;
+  /** Enable built-in delete functionality with confirmation */
+  enableDelete?: boolean;
+  /** Callback after successful delete (receives deleted IDs) */
+  onDeleteSuccess?: (ids: (string | number)[]) => void;
   /** Callback when visible fields change */
   onFieldsChange?: (fields: string[]) => void;
   /** Callback when sort changes */
   onSortChange?: (sort: Sort | null) => void;
+  /** Callback when filter changes from the integrated FilterPanel */
+  onFilterChange?: (filter: Record<string, unknown> | null) => void;
+  /** Callback fired once permissions are resolved for the collection */
+  onPermissionsLoaded?: (permissions: ListPermissionState) => void;
 }
 
 // System fields to exclude from default display
@@ -117,6 +173,7 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   collection,
   enableSelection = false,
   filter,
+  enableFilter = false,
   bulkActions = [],
   fields: displayFields,
   limit: initialLimit = 25,
@@ -126,18 +183,29 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   enableReorder = true,
   enableHeaderMenu = true,
   enableAddField = true,
+  enableCreate = false,
   primaryKeyField = "id",
   rowHeight: rowHeightProp,
   tableSpacing = "cozy",
+  archiveField,
+  archiveValue = "archived",
+  unarchiveValue = "draft",
   onItemClick,
+  onCreate,
+  onEdit,
+  enableDelete = false,
+  onDeleteSuccess,
   onFieldsChange,
   onSortChange: onSortChangeProp,
+  onFilterChange,
+  onPermissionsLoaded,
 }) => {
   // ----- Data state -----
   const [allFields, setAllFields] = useState<Field[]>([]);
   const [visibleFieldKeys, setVisibleFieldKeys] = useState<string[]>([]);
   const [items, setItems] = useState<AnyItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [filterCount, setFilterCount] = useState<number | null>(null);
   const [selectedItems, setSelectedItems] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,6 +218,18 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   // ----- Sort state -----
   const [sort, setSort] = useState<Sort>({ by: null, desc: false });
 
+  // ----- Archive filter state -----
+  const [archiveFilterMode, setArchiveFilterMode] = useState<ArchiveFilter>("all");
+
+  // ----- Filter panel state -----
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [internalFilter, setInternalFilter] = useState<Record<string, unknown> | null>(null);
+
+  // ----- Delete state -----
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingIds, setDeletingIds] = useState<(string | number)[]>([]);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   // ----- Header state (for resize/reorder persistence) -----
   const [headerOverrides, setHeaderOverrides] = useState<
     Record<string, Partial<HeaderRaw>>
@@ -158,11 +238,13 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   // ----- Computed row height -----
   const rowHeight = rowHeightProp ?? SPACING_HEIGHT[tableSpacing] ?? 48;
 
-  // ----- Permission-aware field filtering (mirrors DaaS getFields()) -----
-  // Uses DaaS GET /permissions/me endpoint via PermissionsService.
-  // DaaS GET /fields does NOT filter by permissions (unlike DaaS server-side),
-  // so we must apply permission filtering client-side.
+  // ----- Permission state (mirrors Directus useCollectionPermissions) -----
+  // Fetched from GET /permissions/me via PermissionsService.getMyCollectionAccess().
+  // Empty access map (admin or failed fetch) = assume full access.
   const [readableFields, setReadableFields] = useState<string[] | null>(null);
+  const [createAllowed, setCreateAllowed] = useState(true);
+  const [updateAllowed, setUpdateAllowed] = useState(true);
+  const [deleteAllowed, setDeleteAllowed] = useState(true);
 
   // =========================================================================
   // Load fields + permissions in parallel (avoids race condition)
@@ -172,16 +254,63 @@ export const CollectionList: React.FC<CollectionListProps> = ({
 
     const loadFieldsAndPermissions = async () => {
       try {
-        // Fetch both in parallel — neither depends on the other
-        const [fieldsResult, permFields] = await Promise.all([
+        // Fetch fields + full collection access in parallel
+        const [fieldsResult, collectionAccess] = await Promise.all([
           new FieldsService().readAll(collection),
-          PermissionsService.getReadableFields(collection).catch(() => null),
+          PermissionsService.getMyCollectionAccess().catch(() => ({})),
         ]);
 
         if (cancelled) return;
 
+        // ── Derive CRUD permission flags (mirrors Directus useCollectionPermissions) ──
+        // An empty access map means either admin or failed fetch → assume full access.
+        const accessMap = (collectionAccess ?? {}) as Record<string, Record<string, CollectionActionAccess>>;
+        const access = accessMap[collection] || {};
+        const isEmptyAccess = Object.keys(accessMap).length === 0;
+
+        const readAccess: CollectionActionAccess | undefined = access.read;
+        const createAccess: CollectionActionAccess | undefined = access.create;
+        const updateAccess: CollectionActionAccess | undefined = access.update;
+        const deleteAccess: CollectionActionAccess | undefined = access.delete;
+
+        const canCreate = isEmptyAccess || !!createAccess;
+        const canUpdate = isEmptyAccess || !!updateAccess;
+        const canDelete = isEmptyAccess || !!deleteAccess;
+
+        setCreateAllowed(canCreate);
+        setUpdateAllowed(canUpdate);
+        setDeleteAllowed(canDelete);
+
+        // Determine archive permission (like Directus: requires update + archive field in writable fields)
+        let canArchive = false;
+        if (archiveField && canUpdate) {
+          if (isEmptyAccess) {
+            canArchive = true;
+          } else if (updateAccess?.fields) {
+            canArchive = updateAccess.fields.includes("*") || updateAccess.fields.includes(archiveField);
+          }
+        }
+
+        // Notify consumer of resolved permissions
+        if (!cancelled) {
+          onPermissionsLoaded?.({
+            createAllowed: canCreate,
+            readAllowed: isEmptyAccess || !!readAccess,
+            updateAllowed: canUpdate,
+            deleteAllowed: canDelete,
+            archiveAllowed: canArchive,
+          });
+        }
+
+        // ── Readable fields (for column filtering) ──
+        let permFields: string[] | null = null;
+        if (!isEmptyAccess && readAccess) {
+          permFields = readAccess.fields ?? null;
+          if (permFields && permFields.includes("*")) permFields = null;
+        }
+        setReadableFields(permFields);
+
         // All non-system, non-hidden, non-alias fields
-        // DaaS flat format has hidden/type at top level; Directus nests in meta
         let visible = fieldsResult.filter((f: Field) => {
           if (SYSTEM_FIELDS.includes(f.field)) return false;
           if (f.type === "alias") return false;
@@ -190,13 +319,8 @@ export const CollectionList: React.FC<CollectionListProps> = ({
           return true;
         });
 
-        // Apply permission filter BEFORE setting state
-        // permFields: null = fetch failed (show all), ['*'] = full access, [...] = specific fields
-        setReadableFields(permFields);
-
-        const hasRestriction =
-          permFields && permFields.length > 0 && !permFields.includes("*");
-
+        // Apply read permission field filter
+        const hasRestriction = permFields !== null && permFields.length > 0;
         if (hasRestriction) {
           const accessibleSet = new Set(permFields);
           visible = visible.filter((f) => accessibleSet.has(f.field));
@@ -207,7 +331,7 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         // Set initial visible columns (already permission-filtered)
         if (displayFields) {
           const keys = hasRestriction
-            ? displayFields.filter((k) => new Set(permFields).has(k))
+            ? displayFields.filter((k) => new Set(permFields!).has(k))
             : displayFields;
           setVisibleFieldKeys(
             keys.length > 0
@@ -249,6 +373,38 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   }, [collection, displayFields, primaryKeyField]);
 
   // =========================================================================
+  // Merge external filter prop with internal FilterPanel filter
+  // =========================================================================
+  const mergedFilter = useMemo<Record<string, unknown> | null>(() => {
+    const filters: Record<string, unknown>[] = [];
+    if (filter && Object.keys(filter).length > 0) filters.push(filter);
+    if (internalFilter && Object.keys(internalFilter).length > 0) filters.push(internalFilter);
+    if (filters.length === 0) return null;
+    if (filters.length === 1) return filters[0];
+    return { _and: filters };
+  }, [filter, internalFilter]);
+
+  // Count active filter rules for badge display
+  const activeFilterCount = useMemo(() => {
+    if (!internalFilter) return 0;
+    const countRules = (obj: Record<string, unknown>): number => {
+      if (obj._and && Array.isArray(obj._and)) return (obj._and as Record<string, unknown>[]).reduce((n, r) => n + countRules(r), 0);
+      if (obj._or && Array.isArray(obj._or)) return (obj._or as Record<string, unknown>[]).reduce((n, r) => n + countRules(r), 0);
+      return 1;
+    };
+    return countRules(internalFilter);
+  }, [internalFilter]);
+
+  // Clear selection when collection changes
+  useEffect(() => {
+    setSelectedItems([]);
+    setInternalFilter(null);
+    setFilterPanelOpen(false);
+    setSearch("");
+    setPage(1);
+  }, [collection]);
+
+  // =========================================================================
   // Load items
   // =========================================================================
   const loadItems = useCallback(async () => {
@@ -271,9 +427,23 @@ export const CollectionList: React.FC<CollectionListProps> = ({
       // DaaS expects CSV format, not JSON arrays
       query.fields = fieldsToFetch.join(',');
 
-      // Filter
-      if (filter && Object.keys(filter).length > 0) {
-        query.filter = filter;
+      // Filter — combine merged filter (external + internal) with archive filter
+      const combinedFilters: Record<string, unknown>[] = [];
+      if (mergedFilter && Object.keys(mergedFilter).length > 0) {
+        combinedFilters.push(mergedFilter);
+      }
+      // Archive filter
+      if (archiveField && archiveFilterMode !== "all") {
+        if (archiveFilterMode === "archived") {
+          combinedFilters.push({ [archiveField]: { _eq: archiveValue } });
+        } else {
+          combinedFilters.push({ [archiveField]: { _neq: archiveValue } });
+        }
+      }
+      if (combinedFilters.length === 1) {
+        query.filter = combinedFilters[0];
+      } else if (combinedFilters.length > 1) {
+        query.filter = { _and: combinedFilters };
       }
 
       // Search
@@ -299,18 +469,17 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         { data: Record<string, unknown>[]; meta?: { total_count?: number; filter_count?: number } } | Record<string, unknown>[]
       >(`/api/items/${collection}${queryString ? `?${queryString}` : ""}`);
 
-      // Handle both { data: [...] } (Directus) and flat array (DaaS) formats
+      // Handle both { data: [...] } (DaaS) and flat array (DaaS) formats
       if (Array.isArray(rawResponse)) {
         setItems(rawResponse);
         setTotalCount(rawResponse.length);
+        setFilterCount(null);
       } else {
         setItems(rawResponse.data || []);
-        setTotalCount(
-          rawResponse.meta?.total_count ||
-            rawResponse.meta?.filter_count ||
-            rawResponse.data?.length ||
-            0,
-        );
+        const total = rawResponse.meta?.total_count || rawResponse.data?.length || 0;
+        const filtered = rawResponse.meta?.filter_count ?? null;
+        setTotalCount(total);
+        setFilterCount(filtered !== null && filtered !== total ? filtered : null);
       }
     } catch (err) {
       console.error("Error loading items:", err);
@@ -322,12 +491,15 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   }, [
     collection,
     visibleFieldKeys,
-    filter,
+    mergedFilter,
     limit,
     page,
     search,
     sort,
     primaryKeyField,
+    archiveField,
+    archiveFilterMode,
+    archiveValue,
   ]);
 
   useEffect(() => {
@@ -339,7 +511,7 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   // Reset page on search/filter change
   useEffect(() => {
     setPage(1);
-  }, [search, filter]);
+  }, [search, filter, internalFilter]);
 
   // Permission-filtered field list (allFields is already filtered by permissions
   // in the combined load effect above, so permittedFields === allFields)
@@ -352,8 +524,11 @@ export const CollectionList: React.FC<CollectionListProps> = ({
     return visibleFieldKeys.map((key) => {
       const fieldMeta = permittedFields.find((f) => f.field === key);
       const overrides = headerOverrides[key] || {};
+      // Use field.meta?.field (display name) or humanize the key.
+      // DaaS uses field `name` for display; DaaS uses meta.note as a tooltip.
+      // The header text should be the humanized field name, not the note.
       const label =
-        fieldMeta?.meta?.note ||
+        (fieldMeta as Record<string, unknown> | undefined)?.name as string ||
         key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
       return {
@@ -362,7 +537,8 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         sortable: enableSort,
         align: (overrides.align as Alignment) || "left",
         width: overrides.width ?? null,
-        // Attach field metadata for consumers
+        // Attach field metadata for consumers and renderCell
+        description: fieldMeta?.meta?.note || undefined,
         field: fieldMeta,
         ...overrides,
       } as HeaderRaw;
@@ -527,6 +703,113 @@ export const CollectionList: React.FC<CollectionListProps> = ({
     return permittedFields.filter((f) => !visibleFieldKeys.includes(f.field));
   }, [permittedFields, visibleFieldKeys]);
 
+  // =========================================================================
+  // Determine if any filter/search is active (for empty state messaging)
+  // =========================================================================
+  const hasAppliedFilter = useMemo(() => {
+    return (
+      search.trim().length > 0 ||
+      (filter && Object.keys(filter).length > 0) ||
+      (internalFilter && Object.keys(internalFilter).length > 0) ||
+      (archiveField && archiveFilterMode !== "all")
+    );
+  }, [search, filter, internalFilter, archiveField, archiveFilterMode]);
+
+  // =========================================================================
+  // Field-type-aware cell renderer
+  // Mirrors DaaS adjustFieldsForDisplays — booleans show icons,
+  // dates/timestamps are formatted, numbers use locale, relations show FK.
+  // =========================================================================
+  const fieldTypeRenderCell = useCallback(
+    (item: Record<string, unknown>, header: Header): React.ReactNode | null => {
+      const fieldMeta = permittedFields.find((f) => f.field === header.value);
+      if (!fieldMeta) return null; // fall back to VTable default
+
+      const value = item[header.value];
+      if (value === null || value === undefined) return null; // VTable shows "—"
+
+      const fieldType = fieldMeta.type;
+
+      // ---------- Boolean ----------
+      if (fieldType === "boolean") {
+        return value ? (
+          <IconCheck size={16} color="var(--mantine-color-green-6)" aria-label="Yes" />
+        ) : (
+          <IconX size={16} color="var(--mantine-color-gray-4)" aria-label="No" />
+        );
+      }
+
+      // ---------- Datetime / Timestamp / Date ----------
+      if (
+        fieldType === "timestamp" ||
+        fieldType === "dateTime" ||
+        fieldType === "date"
+      ) {
+        try {
+          const dateObj = new Date(value as string);
+          if (isNaN(dateObj.getTime())) return null;
+          if (fieldType === "date") {
+            return (
+              <Text size="sm" truncate="end">
+                {dateObj.toLocaleDateString()}
+              </Text>
+            );
+          }
+          return (
+            <Text size="sm" truncate="end">
+              {dateObj.toLocaleString()}
+            </Text>
+          );
+        } catch {
+          return null;
+        }
+      }
+
+      // ---------- Integer / Float / Decimal / BigInteger ----------
+      if (
+        fieldType === "integer" ||
+        fieldType === "float" ||
+        fieldType === "decimal" ||
+        fieldType === "bigInteger"
+      ) {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          return (
+            <Text size="sm" truncate="end">
+              {num.toLocaleString()}
+            </Text>
+          );
+        }
+        return null;
+      }
+
+      // ---------- JSON (display as badge) ----------
+      if (fieldType === "json") {
+        return (
+          <Badge variant="light" size="sm" color="gray">
+            JSON
+          </Badge>
+        );
+      }
+
+      // ---------- UUID (truncate) ----------
+      if (fieldType === "uuid") {
+        const str = String(value);
+        return (
+          <Tooltip label={str} openDelay={300}>
+            <Text size="sm" truncate="end" style={{ maxWidth: 120 }}>
+              {str.substring(0, 8)}…
+            </Text>
+          </Tooltip>
+        );
+      }
+
+      // ---------- Default: let VTable handle it ----------
+      return null;
+    },
+    [permittedFields],
+  );
+
   const renderHeaderAppend = useCallback(() => {
     if (!enableAddField || hiddenFields.length === 0) return null;
     return (
@@ -552,13 +835,86 @@ export const CollectionList: React.FC<CollectionListProps> = ({
   }, [enableAddField, hiddenFields, addField]);
 
   // =========================================================================
+  // Filter panel handler
+  // =========================================================================
+  const handleFilterChange = useCallback(
+    (newFilter: Record<string, unknown> | null) => {
+      setInternalFilter(newFilter);
+      onFilterChange?.(newFilter);
+    },
+    [onFilterChange],
+  );
+
+  const handleClearFilter = useCallback(() => {
+    setInternalFilter(null);
+    onFilterChange?.(null);
+    setFilterPanelOpen(false);
+  }, [onFilterChange]);
+
+  // =========================================================================
+  // Delete handlers
+  // =========================================================================
+  const handleDeleteRequest = useCallback(
+    (ids: (string | number)[]) => {
+      if (ids.length === 0) return;
+      setDeletingIds(ids);
+      setDeleteConfirmOpen(true);
+    },
+    [],
+  );
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (deletingIds.length === 0) return;
+
+    setDeleteLoading(true);
+    try {
+      const itemsService = new ItemsService(collection);
+      await itemsService.deleteMany(deletingIds, primaryKeyField);
+      setDeleteConfirmOpen(false);
+      setDeletingIds([]);
+      setSelectedItems([]);
+      onDeleteSuccess?.(deletingIds);
+      // Refresh list
+      loadItems();
+    } catch (err) {
+      console.error("Error deleting items:", err);
+      setError(err instanceof Error ? err.message : "Failed to delete items");
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [deletingIds, collection, primaryKeyField, loadItems, onDeleteSuccess]);
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteConfirmOpen(false);
+    setDeletingIds([]);
+  }, []);
+
+  // =========================================================================
+  // Item count display (mirrors Directus "X-Y of Z items (N filtered)")
+  // =========================================================================
+  const itemCountDisplay = useMemo(() => {
+    if (loading) return "Loading...";
+    const displayTotal = filterCount !== null ? filterCount : totalCount;
+    if (displayTotal === 0) return "No items";
+    const from = Math.min((page - 1) * limit + 1, displayTotal);
+    const to = Math.min(page * limit, displayTotal);
+    let text = `${from}–${to} of ${displayTotal} items`;
+    if (filterCount !== null) {
+      text += ` (filtered from ${totalCount})`;
+    }
+    return text;
+  }, [loading, totalCount, filterCount, page, limit]);
+
+  // =========================================================================
   // Render
   // =========================================================================
   return (
-    <Stack gap="md" data-testid="collection-list">
-      {/* Search and Actions Bar */}
-      <Group justify="space-between">
-        <Group>
+    <Stack gap={0} data-testid="collection-list">
+      {/* ── Action Toolbar ── */}
+      <div className="collection-list-toolbar" data-testid="collection-list-toolbar">
+        {/* Left side: search, filter toggle, archive filter, refresh */}
+        <Group gap="xs">
           {enableSearch && (
             <TextInput
               placeholder="Search..."
@@ -567,10 +923,68 @@ export const CollectionList: React.FC<CollectionListProps> = ({
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 setSearch(e.currentTarget.value)
               }
+              rightSection={
+                search ? (
+                  <ActionIcon
+                    variant="subtle"
+                    size="xs"
+                    onClick={() => setSearch("")}
+                    aria-label="Clear search"
+                  >
+                    <IconX size={12} />
+                  </ActionIcon>
+                ) : undefined
+              }
+              size="sm"
               className="collection-list-search"
               data-testid="collection-list-search"
             />
           )}
+
+          {enableFilter && (
+            <Tooltip label={filterPanelOpen ? "Hide filters" : "Show filters"}>
+              <ActionIcon
+                variant={activeFilterCount > 0 ? "filled" : "subtle"}
+                color={activeFilterCount > 0 ? "blue" : undefined}
+                onClick={() => setFilterPanelOpen((v) => !v)}
+                title="Toggle filter panel"
+                data-testid="collection-list-filter-toggle"
+                pos="relative"
+              >
+                <IconFilter size={16} />
+                {activeFilterCount > 0 && (
+                  <Badge
+                    size="xs"
+                    circle
+                    color="red"
+                    className="collection-list-filter-badge"
+                    data-testid="collection-list-filter-count"
+                  >
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </ActionIcon>
+            </Tooltip>
+          )}
+
+          {archiveField && (
+            <Select
+              value={archiveFilterMode}
+              onChange={(val) => {
+                if (val) setArchiveFilterMode(val as ArchiveFilter);
+              }}
+              data={[
+                { value: "all", label: "All Items" },
+                { value: "unarchived", label: "Active Items" },
+                { value: "archived", label: "Archived Items" },
+              ]}
+              size="sm"
+              leftSection={<IconArchive size={14} />}
+              data-testid="collection-list-archive-filter"
+              style={{ width: 160 }}
+            />
+          )}
+
           <ActionIcon
             variant="subtle"
             onClick={loadItems}
@@ -581,30 +995,117 @@ export const CollectionList: React.FC<CollectionListProps> = ({
           </ActionIcon>
         </Group>
 
-        {/* Bulk Actions */}
-        {enableSelection &&
-          selectedIds.length > 0 &&
-          bulkActions.length > 0 && (
-            <Group data-testid="collection-list-bulk-actions">
-              <Text size="sm" c="dimmed">
+        {/* Right side: item count (when no selection), bulk actions (when selected), create button */}
+        <Group gap="xs">
+          {/* Bulk actions — appear when items are selected */}
+          {enableSelection && selectedIds.length > 0 ? (
+            <Group gap="xs" data-testid="collection-list-bulk-actions">
+              <Badge variant="light" size="lg">
                 {selectedIds.length} selected
-              </Text>
-              {bulkActions.map((action, index) => (
-                <Button
-                  key={index}
-                  size="sm"
-                  variant="light"
-                  color={action.color}
-                  leftSection={action.icon}
-                  onClick={() => action.action(selectedIds)}
-                  data-testid={`bulk-action-${index}`}
-                >
-                  {action.label}
-                </Button>
-              ))}
+              </Badge>
+              {/* Built-in delete action */}
+              {enableDelete && deleteAllowed && (
+                <Tooltip label="Delete selected">
+                  <ActionIcon
+                    variant="light"
+                    color="red"
+                    onClick={() => handleDeleteRequest(selectedIds)}
+                    data-testid="bulk-action-delete"
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+              {bulkActions.map((action, index) => {
+                const permKey = action.requiredPermission;
+                const permAllowed =
+                  !permKey ||
+                  (permKey === "create" && createAllowed) ||
+                  (permKey === "update" && updateAllowed) ||
+                  (permKey === "delete" && deleteAllowed);
+                return (
+                  <Tooltip
+                    key={index}
+                    label={permAllowed ? action.label : "Not allowed"}
+                  >
+                    <ActionIcon
+                      variant="light"
+                      color={action.color}
+                      onClick={() => permAllowed && action.action(selectedIds)}
+                      disabled={!permAllowed}
+                      data-testid={`bulk-action-${index}`}
+                    >
+                      {action.icon || (
+                        action.requiredPermission === "delete" ? <IconTrash size={16} /> :
+                        action.requiredPermission === "update" ? <IconEdit size={16} /> :
+                        action.requiredPermission === "create" ? <IconPlus size={16} /> :
+                        <IconTrash size={16} />
+                      )}
+                    </ActionIcon>
+                  </Tooltip>
+                );
+              })}
+              <ActionIcon
+                variant="subtle"
+                onClick={() => setSelectedItems([])}
+                title="Clear selection"
+                data-testid="collection-list-clear-selection"
+              >
+                <IconX size={16} />
+              </ActionIcon>
             </Group>
+          ) : (
+            <Text size="sm" c="dimmed" data-testid="collection-list-item-count">
+              {itemCountDisplay}
+            </Text>
           )}
-      </Group>
+
+          {/* Create button — rendered when enableCreate & onCreate, disabled when no permission */}
+          {enableCreate && onCreate && (
+            <Tooltip label={createAllowed ? "Create item" : "Not allowed"}>
+              <ActionIcon
+                variant="filled"
+                color="blue"
+                size="md"
+                onClick={createAllowed ? onCreate : undefined}
+                disabled={!createAllowed}
+                data-testid="collection-list-create"
+                aria-label={createAllowed ? "Create item" : "Create item (not allowed)"}
+              >
+                <IconPlus size={18} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
+      </div>
+
+      {/* ── Inline Filter Panel (collapsible) ── */}
+      {enableFilter && (
+        <Collapse in={filterPanelOpen}>
+          <div className="collection-list-filter-panel" data-testid="collection-list-filter-panel">
+            <Group justify="space-between" mb="xs">
+              <Text size="sm" fw={600}>Filters</Text>
+              {activeFilterCount > 0 && (
+                <Button
+                  variant="subtle"
+                  size="compact-xs"
+                  leftSection={<IconFilterOff size={14} />}
+                  onClick={handleClearFilter}
+                  data-testid="collection-list-clear-filters"
+                >
+                  Clear all
+                </Button>
+              )}
+            </Group>
+            <FilterPanel
+              fields={permittedFields}
+              value={internalFilter}
+              onChange={handleFilterChange}
+              mode="inline"
+            />
+          </div>
+        </Collapse>
+      )}
 
       {/* Error Alert */}
       {error && (
@@ -612,12 +1113,13 @@ export const CollectionList: React.FC<CollectionListProps> = ({
           icon={<IconAlertCircle size={16} />}
           color="red"
           data-testid="collection-list-error"
+          mt="xs"
         >
           {error}
         </Alert>
       )}
 
-      {/* VTable */}
+      {/* ── VTable ── */}
       <VTable
         headers={headers}
         items={items}
@@ -631,39 +1133,41 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         fixedHeader
         loading={loading}
         loadingText="Loading items..."
-        noItemsText="No items found"
+        noItemsText={
+          hasAppliedFilter
+            ? "No results — try adjusting your search or filters"
+            : "No items in this collection"
+        }
         rowHeight={rowHeight}
         selectionUseKeys
         clickable={!!onItemClick}
+        renderCell={fieldTypeRenderCell}
         renderHeaderContextMenu={
           enableHeaderMenu ? renderHeaderContextMenu : undefined
         }
         renderHeaderAppend={enableAddField ? renderHeaderAppend : undefined}
         renderFooter={() => (
-          <div className="collection-list-footer">
-            <Text size="sm" c="dimmed">
-              {loading
-                ? "Loading..."
-                : `Showing ${Math.min(
-                    (page - 1) * limit + 1,
-                    totalCount,
-                  )}–${Math.min(page * limit, totalCount)} of ${totalCount}`}
+          <div className="collection-list-footer" data-testid="collection-list-footer">
+            <Text size="sm" c="dimmed" data-testid="collection-list-footer-count">
+              {itemCountDisplay}
             </Text>
-            <Group>
-              <Text size="sm">Per page:</Text>
-              <Select
-                value={String(limit)}
-                onChange={(value) => {
-                  if (value) {
-                    setLimit(Number(value));
-                    setPage(1);
-                  }
-                }}
-                data={["10", "25", "50", "100"]}
-                size="xs"
-                className="collection-list-per-page-select"
-                data-testid="collection-list-per-page"
-              />
+            <Group gap="sm">
+              <Group gap={4}>
+                <Text size="xs" c="dimmed">Per page:</Text>
+                <Select
+                  value={String(limit)}
+                  onChange={(value) => {
+                    if (value) {
+                      setLimit(Number(value));
+                      setPage(1);
+                    }
+                  }}
+                  data={["25", "50", "100", "250"]}
+                  size="xs"
+                  className="collection-list-per-page-select"
+                  data-testid="collection-list-per-page"
+                />
+              </Group>
               {totalPages > 1 && (
                 <Pagination
                   value={page}
@@ -684,6 +1188,41 @@ export const CollectionList: React.FC<CollectionListProps> = ({
         }
         data-testid="collection-list-table"
       />
+
+      {/* Delete confirmation modal */}
+      <Modal
+        opened={deleteConfirmOpen}
+        onClose={handleDeleteCancel}
+        title="Confirm Delete"
+        centered
+        size="sm"
+        data-testid="delete-confirm-modal"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure you want to delete {deletingIds.length}{" "}
+            {deletingIds.length === 1 ? "item" : "items"}? This action cannot be
+            undone.
+          </Text>
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              onClick={handleDeleteCancel}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              color="red"
+              onClick={handleDeleteConfirm}
+              loading={deleteLoading}
+              data-testid="delete-confirm-btn"
+            >
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 };

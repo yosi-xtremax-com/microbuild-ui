@@ -61,3 +61,6 @@ export {
   type RegistryComponentInterface,
   type RegistryJson,
 } from './load-interfaces';
+
+// New Item Detection
+export { isNewItem, isExistingItem } from './is-new-item';

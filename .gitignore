@@ -62,3 +62,4 @@ storybook-static/
 
 # projects
 /*/*/node_modules/
+.vscode

@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@buildpad/types": "workspace:*",
-    "@buildpad/services": "workspace:*"
+    "@buildpad/services": "workspace:*",
+    "@buildpad/utils": "workspace:*"
   },
   "peerDependencies": {
     "@mantine/notifications": "^8.0.0",

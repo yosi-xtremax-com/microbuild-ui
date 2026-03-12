@@ -11,14 +11,14 @@
  * - `displayItems` merges fetched server data with local changes so the
  *   UI always reflects the user's in-progress edits.
  *
- * Port of the Directus `use-relation-multiple` composable, specialised for
+ * Port of the DaaS `use-relation-multiple` composable, specialised for
  * M2M relations (junction table pattern).
  *
  * @module @buildpad/hooks/useRelationMultipleM2M
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { apiRequest } from './utils';
+import { apiRequest, isNewItem } from './utils';
 import type { M2MRelationInfo } from './useRelationM2M';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -128,7 +128,7 @@ export function useRelationMultipleM2M(
     // ── Load items from server ──────────────────────────────────────
 
     const loadItems = useCallback(async (params: M2MMultipleQueryParams) => {
-        if (!relationInfo || !parentPrimaryKey || parentPrimaryKey === '+') {
+        if (!relationInfo || isNewItem(parentPrimaryKey)) {
             setFetchedItems([]);
             setExistingItemCount(0);
             return;

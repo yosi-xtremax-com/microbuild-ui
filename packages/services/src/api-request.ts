@@ -40,5 +40,12 @@ export async function apiRequest<T = unknown>(
     throw new Error(`API error: ${response.status} - ${error}`);
   }
 
-  return response.json();
+  // Handle 204 No Content (e.g. DELETE responses)
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text);
 }

@@ -145,7 +145,7 @@
     },
     "services": {
       "name": "services",
-      "description": "Service classes for fields, collections, permissions, and DaaS API config",
+      "description": "Service classes for fields, collections, items, permissions, and DaaS API config",
       "files": [
         {
           "source": "services/src/api-request.ts",
@@ -158,6 +158,10 @@
         {
           "source": "services/src/collections.ts",
           "target": "lib/buildpad/services/collections.ts"
+        },
+        {
+          "source": "services/src/items.ts",
+          "target": "lib/buildpad/services/items.ts"
         },
         {
           "source": "services/src/permissions.ts",
@@ -1676,6 +1680,14 @@
           "target": "components/ui/vform/components/FormGroupField.tsx"
         },
         {
+          "source": "ui-form/src/components/InterfaceErrorBoundary.tsx",
+          "target": "components/ui/vform/components/InterfaceErrorBoundary.tsx"
+        },
+        {
+          "source": "ui-form/src/components/ValidationErrors.tsx",
+          "target": "components/ui/vform/components/ValidationErrors.tsx"
+        },
+        {
           "source": "ui-form/src/components/index.ts",
           "target": "components/ui/vform/components/index.ts"
         },
@@ -1690,6 +1702,22 @@
         {
           "source": "ui-form/src/utils/update-field-widths.ts",
           "target": "components/ui/vform/utils/update-field-widths.ts"
+        },
+        {
+          "source": "ui-form/src/utils/apply-conditions.ts",
+          "target": "components/ui/vform/utils/apply-conditions.ts"
+        },
+        {
+          "source": "ui-form/src/utils/push-group-options-down.ts",
+          "target": "components/ui/vform/utils/push-group-options-down.ts"
+        },
+        {
+          "source": "ui-form/src/utils/set-primary-key-readonly.ts",
+          "target": "components/ui/vform/utils/set-primary-key-readonly.ts"
+        },
+        {
+          "source": "ui-form/src/utils/update-system-divider.ts",
+          "target": "components/ui/vform/utils/update-system-divider.ts"
         },
         {
           "source": "ui-form/src/utils/index.ts",
@@ -1769,7 +1797,8 @@
         "services"
       ],
       "registryDependencies": [
-        "vform"
+        "vform",
+        "save-options"
       ]
     },
     {
@@ -1820,7 +1849,7 @@
     {
       "name": "collection-list",
       "title": "CollectionList",
-      "description": "Data-connected collection table composing VTable with pagination, search, sorting, column resize/reorder, header context menus, field add/remove, and bulk actions",
+      "description": "Data-connected collection table with pagination, search, sorting, column resize/reorder, header context menus, field add/remove, filtering, and bulk delete",
       "category": "collection",
       "files": [
         {
@@ -1837,7 +1866,8 @@
         "services"
       ],
       "registryDependencies": [
-        "vtable"
+        "vtable",
+        "filter-panel"
       ]
     },
     {

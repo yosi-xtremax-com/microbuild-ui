@@ -11,6 +11,7 @@ import {
   Badge,
   Divider,
   Select,
+  ScrollArea,
 } from '@mantine/core';
 import {
   IconPlugConnected,
@@ -180,6 +181,9 @@ const DaaSListPlayground: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showList, setShowList] = useState(false);
   const [listKey, setListKey] = useState(0);
+  const [eventLog, setEventLog] = useState<string[]>([]);
+  const addLog = (msg: string) =>
+    setEventLog((prev) => [`${new Date().toLocaleTimeString()} — ${msg}`, ...prev].slice(0, 50));
 
   // Check connection and load collections on mount
   useEffect(() => {
@@ -366,6 +370,7 @@ pnpm dev:host
 
         {/* Collection List */}
         {showList ? (
+          <>
           <Paper p="md" withBorder>
             <Group gap="xs" mb="md">
               <IconList size={20} />
@@ -376,12 +381,40 @@ pnpm dev:host
               collection={collection}
               enableSearch
               enableSelection
-              limit={15}
-              onItemClick={(item) => {
-                console.log('[CollectionList] Item clicked:', item);
-              }}
+              enableFilter
+              enableCreate
+              enableDelete
+              enableSort
+              enableResize
+              enableReorder
+              enableHeaderMenu
+              limit={25}
+              onCreate={() => addLog(`Create new item in "${collection}"`)}
+              onItemClick={(item) => addLog(`Clicked: ${JSON.stringify(item)?.slice(0, 80)}`)}
+              onEdit={(item) => addLog(`Edit: ${JSON.stringify(item)?.slice(0, 80)}`)}
+              onDeleteSuccess={(ids) => addLog(`Deleted items: ${ids.join(', ')}`)}
             />
           </Paper>
+
+          {/* Event Log */}
+          <Paper p="md" withBorder>
+            <Group justify="space-between" mb="xs">
+              <Text size="sm" fw={600}>Event Log</Text>
+              <Button variant="subtle" size="compact-xs" onClick={() => setEventLog([])}>
+                Clear
+              </Button>
+            </Group>
+            <ScrollArea h={120}>
+              {eventLog.length === 0 ? (
+                <Text size="xs" c="dimmed">No events yet — click rows, create, or delete to see callbacks</Text>
+              ) : (
+                eventLog.map((entry, i) => (
+                  <Text key={i} size="xs" c="dimmed">{entry}</Text>
+                ))
+              )}
+            </ScrollArea>
+          </Paper>
+          </>
         ) : (
           <Alert color="blue" title="Select a Collection" icon={<IconDatabase size={16} />}>
             <Text size="sm">
