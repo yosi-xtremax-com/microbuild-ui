@@ -77,6 +77,9 @@
     "supabase": [
       "@supabase/ssr@^0.5",
       "@supabase/supabase-js@^2"
+    ],
+    "oauth": [
+      "jose"
     ]
   },
   "lib": {
@@ -426,8 +429,53 @@
           "target": "lib/supabase/middleware.ts"
         },
         {
+          "source": "cli/templates/supabase/admin.ts",
+          "target": "lib/supabase/admin.ts"
+        },
+        {
           "source": "cli/templates/middleware/middleware.ts",
           "target": "middleware.ts"
+        }
+      ]
+    },
+    "external-oauth": {
+      "name": "external-oauth",
+      "description": "External OAuth2/OIDC integration where Next.js acts as the OAuth client. Supports Azure AD, Google, Okta, Auth0, and generic OIDC providers. Includes PKCE, AES-256-GCM state encryption, JIT user provisioning, and multi-source claim extraction.",
+      "dependencies": [
+        "jose"
+      ],
+      "internalDependencies": [
+        "supabase-auth",
+        "api-routes"
+      ],
+      "files": [
+        {
+          "source": "cli/templates/lib/oauth/config.ts",
+          "target": "lib/oauth/config.ts"
+        },
+        {
+          "source": "cli/templates/lib/oauth/pkce.ts",
+          "target": "lib/oauth/pkce.ts"
+        },
+        {
+          "source": "cli/templates/lib/oauth/validate.ts",
+          "target": "lib/oauth/validate.ts"
+        },
+        {
+          "source": "cli/templates/lib/oauth/index.ts",
+          "target": "lib/oauth/index.ts"
+        },
+        {
+          "source": "cli/templates/api/auth-callback-oauth-route.ts",
+          "target": "app/api/auth/callback/route.ts"
+        },
+        {
+          "source": "cli/templates/api/auth-oauth-provider-route.ts",
+          "target": "app/api/auth/oauth/[provider]/route.ts"
+        },
+        {
+          "source": "cli/templates/components/auth/OAuthLoginButtons.tsx",
+          "target": "components/auth/OAuthLoginButtons.tsx"
         }
       ]
     }
